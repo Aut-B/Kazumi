@@ -42,20 +42,29 @@ jobs:
           PY
           grep -c "CODE_SIGN_STYLE = Manual" ios/Runner.xcodeproj/project.pbxproj || true
       - name: Build IPA
-        # CI 上没有开发者账号：Flutter 会因为没有 Development Team 而在收尾阶段报错，
-        # 但 Runner.app 此时已经构建完成，产物本身就是未签名的，照常打包即可。
-        run: flutter build ios --release --no-codesign || true
-        env:
-          CODE_SIGNING_ALLOWED: "NO"
-          CODE_SIGNING_REQUIRED: "NO"
-          CODE_SIGN_IDENTITY: "-"
-          EXPANDED_CODE_SIGN_IDENTITY: "-"
+        # CI 上没有开发者账号。先按常规流程构建；若 Xcode 因为缺少 Development Team
+        # 拒绝收尾，则直接用 xcodebuild 构建——命令行参数的优先级高于工程设置，
+        # 可以彻底关掉签名。产物本就是未签名的 IPA。
+        run: |
+          flutter build ios --release --no-codesign -v > build.log 2>&1 || true
+          grep -E "error:|requires a development team" build.log | head -20 || true
+          grep -n "CODE_SIGN_STYLE" ios/Runner.xcodeproj/project.pbxproj | head -5 || true
+          if [ ! -d build/ios/iphoneos/Runner.app ]; then
+            echo "Fallback: 用 xcodebuild 直接构建"
+            xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+              -configuration Release -sdk iphoneos -arch arm64 \
+              -derivedDataPath build/ios/iphoneos \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" CODE_SIGN_STYLE=Manual \
+              build
+          fi
       - name: Create IPA
         run: |
-          ls -la build/ios/iphoneos/
-          test -d build/ios/iphoneos/Runner.app
+          APP=$(find build/ios/iphoneos -maxdepth 5 -type d -name "Runner.app" | head -1)
+          echo "APP=$APP"
+          test -n "$APP"
           mkdir Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
+          cp -R "$APP" Payload/Runner.app
           find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
           zip -q -r Kazumi_ios_PiP_unsigned.ipa Payload
       - name: Upload iOS build
