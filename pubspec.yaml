@@ -95,12 +95,12 @@ dependencies:
   media_kit:
     git:
       url: https://github.com/Aut-B/Kazumi-media-kit.git
-      ref: bf924f192aca8b41cbd36b23a8d3af9d16ade04f
+      ref: 3d86c68de98c95e366b0a78b150d12bf06b0d02c
       path: ./media_kit
   media_kit_video:
     git:
       url: https://github.com/Aut-B/Kazumi-media-kit.git
-      ref: bf924f192aca8b41cbd36b23a8d3af9d16ade04f
+      ref: 3d86c68de98c95e366b0a78b150d12bf06b0d02c
       path: ./media_kit_video
   macos_secure_bookmarks: ^0.2.1
 

@@ -13,6 +13,7 @@ import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/network/proxy_utils.dart';
 import 'package:kazumi/services/network/system_proxy_service.dart';
 import 'package:kazumi/services/player/playback_cache_policy.dart';
+import 'package:kazumi/services/player/pip_utils.dart';
 import 'package:kazumi/services/player/player_error_mapper.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/video_source/video_source_format.dart';
@@ -454,6 +455,13 @@ abstract class _PlayerPlaybackController with Store {
         if (!isCurrentPlayer(player)) {
           return await _discardIfNotCurrent(candidate);
         }
+      }
+
+      // 换源 / 连播下一集前先为画中画「清场」：保留小窗，只清掉上一集的
+      // 图层内容与时间轴，否则播放位置归零会让系统小窗停在黑屏。
+      final pipController = videoController;
+      if (Platform.isIOS && pipController != null) {
+        await PipUtils.prepareIOSPIPForNewMedia(pipController);
       }
 
       await player.open(

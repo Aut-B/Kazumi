@@ -210,24 +210,32 @@ class _PlayerItemState extends State<PlayerItem>
     if (!Platform.isIOS) {
       return;
     }
-    final controller = playerController.playback.videoController;
-    if (controller == null) {
-      return;
-    }
     final bool autoEnterPIPEnabled =
         GStorage.getSetting(SettingsKeys.androidAutoEnterPIP);
-    try {
-      await PipUtils.setIOSAutoEnterPIPEnabled(
-          controller, autoEnterPIPEnabled);
+    // 进入播放页时 VideoController 可能尚未创建（要先解析播放源），
+    // 这里轮询等它就绪，否则自动画中画永远武装不上。
+    for (var i = 0; i < 50; i++) {
       if (!mounted) {
         return;
       }
-      _iosAutoEnterPip = autoEnterPIPEnabled;
-    } catch (e) {
-      KazumiLogger().w(
-        'PlayerItem: failed to sync ios auto enter pip setting',
-        error: e,
-      );
+      final controller = playerController.playback.videoController;
+      if (controller != null) {
+        try {
+          await PipUtils.setIOSAutoEnterPIPEnabled(
+              controller, autoEnterPIPEnabled);
+          if (!mounted) {
+            return;
+          }
+          _iosAutoEnterPip = autoEnterPIPEnabled;
+        } catch (e) {
+          KazumiLogger().w(
+            'PlayerItem: failed to sync ios auto enter pip setting',
+            error: e,
+          );
+        }
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
     }
   }
 
