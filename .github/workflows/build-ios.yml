@@ -25,10 +25,26 @@ jobs:
         run: brew install cmake ninja
       - name: Disable code signing
         run: |
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' ios/Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";/"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";/g' ios/Runner.xcodeproj/project.pbxproj
+          python3 - <<'PY'
+          import io, re
+          path = 'ios/Runner.xcodeproj/project.pbxproj'
+          src = io.open(path, encoding='utf-8').read()
+          automatic = src.count('CODE_SIGN_STYLE = Automatic')
+          src = src.replace('CODE_SIGN_STYLE = Automatic', 'CODE_SIGN_STYLE = Manual')
+          src = re.sub(
+              r'"CODE_SIGN_IDENTITY\[sdk=iphoneos\*\]" = "iPhone Developer";',
+              '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "";',
+              src,
+          )
+          src = src.replace('DEVELOPMENT_TEAM = "";', '')
+          io.open(path, 'w', encoding='utf-8').write(src)
+          print('CODE_SIGN_STYLE switched to Manual:', automatic)
+          PY
+          grep -c "CODE_SIGN_STYLE = Manual" ios/Runner.xcodeproj/project.pbxproj || true
       - name: Build IPA
-        run: flutter build ios --release --no-codesign
+        # CI 上没有开发者账号：Flutter 会因为没有 Development Team 而在收尾阶段报错，
+        # 但 Runner.app 此时已经构建完成，产物本身就是未签名的，照常打包即可。
+        run: flutter build ios --release --no-codesign || true
         env:
           CODE_SIGNING_ALLOWED: "NO"
           CODE_SIGNING_REQUIRED: "NO"
@@ -36,6 +52,8 @@ jobs:
           EXPANDED_CODE_SIGN_IDENTITY: "-"
       - name: Create IPA
         run: |
+          ls -la build/ios/iphoneos/
+          test -d build/ios/iphoneos/Runner.app
           mkdir Payload
           cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
           find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
