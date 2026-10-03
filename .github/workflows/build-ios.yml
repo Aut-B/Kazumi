@@ -1,0 +1,38 @@
+name: "Build for iOS"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  flutter-build-ios:
+    name: "Build iOS unsigned IPA"
+    runs-on: "macos-latest"
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2.16.0
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      - name: Install native build tools
+        run: brew install cmake ninja
+      - name: Build IPA
+        run: flutter build ios --release --no-codesign
+      - name: Create IPA
+        run: |
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
+          find Payload/Runner.app/Frameworks -type d -name "*.framework" -exec codesign --force --sign - --preserve-metadata=identifier,entitlements {} \;
+          zip -q -r Kazumi_ios_PiP_unsigned.ipa Payload
+      - name: Upload iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios_pip_outputs
+          path: Kazumi_ios_*.ipa

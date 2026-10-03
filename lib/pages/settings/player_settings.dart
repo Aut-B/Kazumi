@@ -342,15 +342,17 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
                 description: Text('当前视频播放完毕后自动播放下一集'),
                 initialValue: autoPlayNext,
               ),
-              if (Platform.isAndroid)
+              if (Platform.isAndroid || Platform.isIOS)
                 SettingsTile.switchTile(
                   leading: Icons.picture_in_picture_alt_rounded,
                   onToggle: (value) async {
                     androidAutoEnterPIP = value ?? !androidAutoEnterPIP;
                     await GStorage.putSetting<bool>(
                         SettingsKeys.androidAutoEnterPIP, androidAutoEnterPIP);
-                    await PipUtils.setAndroidAutoEnterPIPEnabled(
-                        androidAutoEnterPIP);
+                    if (Platform.isAndroid) {
+                      await PipUtils.setAndroidAutoEnterPIPEnabled(
+                          androidAutoEnterPIP);
+                    }
                     setState(() {});
                   },
                   title: Text('自动进入画中画'),

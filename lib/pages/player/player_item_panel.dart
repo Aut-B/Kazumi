@@ -38,6 +38,7 @@ class PlayerItemPanel extends StatefulWidget {
     required this.showDanmakuSwitch,
     required this.handleFullscreen,
     required this.enterAndroidPictureInPicture,
+    this.enterIOSPictureInPicture,
     required this.handleScreenShot,
     required this.showScreenshotCandidates,
     required this.onNextEpisode,
@@ -66,6 +67,7 @@ class PlayerItemPanel extends StatefulWidget {
   final VoidCallback? onToggleSidePanel;
   final VoidCallback handleFullscreen;
   final Future<void> Function() enterAndroidPictureInPicture;
+  final Future<void> Function()? enterIOSPictureInPicture;
   final VoidCallback handleScreenShot;
   final VoidCallback showScreenshotCandidates;
   final VoidCallback handleProgressBarDragStart;
@@ -810,9 +812,15 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
               _forwardButton(),
               if ((_desktop &&
                       (compact || !videoPageController.isFullscreen)) ||
-                  (defaultTargetPlatform == TargetPlatform.android))
+                  (defaultTargetPlatform == TargetPlatform.android) ||
+                  (defaultTargetPlatform == TargetPlatform.iOS &&
+                      widget.enterIOSPictureInPicture != null))
                 IconButton(
                   onPressed: () async {
+                    if (defaultTargetPlatform == TargetPlatform.iOS) {
+                      await widget.enterIOSPictureInPicture?.call();
+                      return;
+                    }
                     if (_desktop) {
                       if (videoPageController.isPip) {
                         await PipUtils.exitDesktopPIPWindow();

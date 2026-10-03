@@ -144,6 +144,17 @@ class _PlayerItemState extends State<PlayerItem>
   bool _pipEnterRequested = false;
   late mobx.ReactionDisposer _playerSizeListener;
 
+  // iOS 系统画中画：小窗由系统绘制，App 内画面保持原样。
+  StreamSubscription<String>? _iosPipEventSubscription;
+  StreamSubscription<String>? _iosPipErrorSubscription;
+  bool _iosPipActive = false;
+  bool _iosAutoEnterPip = false;
+
+  /// 画中画正在（或即将）接管播放时，App 进后台不能暂停播放器——
+  /// 否则小窗没有画面，自动画中画更是直接失效。
+  bool get _isIOSPipKeepingAlive =>
+      Platform.isIOS && (_iosPipActive || _iosAutoEnterPip);
+
   late mobx.ReactionDisposer _fullscreenListener;
 
   @override
@@ -155,7 +166,9 @@ class _PlayerItemState extends State<PlayerItem>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.paused && !backgroundPlayback) {
+    if (state == AppLifecycleState.paused &&
+        !backgroundPlayback &&
+        !_isIOSPipKeepingAlive) {
       // Suspend before awaiting pause so a later resume wins; pause alone keeps prefetching.
       final suspend = playerController.playback.setPrefetchSuspended(true);
       if (playerController.playback.mediaPlayer != null &&
@@ -190,6 +203,88 @@ class _PlayerItemState extends State<PlayerItem>
         'PlayerItem: failed to sync android auto enter pip setting',
         error: e,
       );
+    }
+  }
+
+  Future<void> _syncIOSAutoEnterPIPSetting() async {
+    if (!Platform.isIOS) {
+      return;
+    }
+    final controller = playerController.playback.videoController;
+    if (controller == null) {
+      return;
+    }
+    final bool autoEnterPIPEnabled =
+        GStorage.getSetting(SettingsKeys.androidAutoEnterPIP);
+    try {
+      await PipUtils.setIOSAutoEnterPIPEnabled(
+          controller, autoEnterPIPEnabled);
+      if (!mounted) {
+        return;
+      }
+      _iosAutoEnterPip = autoEnterPIPEnabled;
+    } catch (e) {
+      KazumiLogger().w(
+        'PlayerItem: failed to sync ios auto enter pip setting',
+        error: e,
+      );
+    }
+  }
+
+  /// 进入 iOS 系统画中画。
+  Future<void> enterIOSPictureInPicture() async {
+    if (!Platform.isIOS || !mounted) {
+      return;
+    }
+    final controller = playerController.playback.videoController;
+    if (controller == null) {
+      KazumiDialog.showToast(message: '播放器尚未就绪');
+      return;
+    }
+    if (!await PipUtils.isIOSPIPSupported()) {
+      KazumiDialog.showToast(message: '当前设备不支持画中画');
+      return;
+    }
+    try {
+      await PipUtils.enterIOSPIPWindow(controller);
+    } catch (e) {
+      KazumiLogger().w('PlayerItem: failed to enter ios pip', error: e);
+      KazumiDialog.showToast(message: '进入画中画失败');
+    }
+  }
+
+  /// 退出 iOS 系统画中画。
+  Future<void> exitIOSPictureInPicture() async {
+    if (!Platform.isIOS) {
+      return;
+    }
+    final controller = playerController.playback.videoController;
+    if (controller == null) {
+      return;
+    }
+    try {
+      await PipUtils.exitIOSPIPWindow(controller);
+    } catch (e) {
+      KazumiLogger().w('PlayerItem: failed to exit ios pip', error: e);
+    }
+  }
+
+  void _handleIOSPipEvent(String event) {
+    if (!mounted) {
+      return;
+    }
+    switch (event) {
+      case 'start':
+        _iosPipActive = true;
+        break;
+      case 'stop':
+        _iosPipActive = false;
+        break;
+      case 'restore':
+        // 用户在系统小窗里点了「回到 App」：App 已被带到前台，播放器保持现状，
+        // 由系统完成界面恢复。
+        KazumiLogger().i('PlayerItem: ios pip restore requested');
+        break;
     }
   }
 
@@ -1275,6 +1370,19 @@ class _PlayerItemState extends State<PlayerItem>
       unawaited(_updateAndroidPIPActions(force: true));
       _scheduleAndroidPIPSourceRectSync();
     }
+    if (Platform.isIOS) {
+      _iosPipEventSubscription = PipUtils.iosPipEvents.listen(
+        _handleIOSPipEvent,
+        onError: (Object error) {
+          KazumiLogger().w('PlayerItem: ios pip event error', error: error);
+        },
+      );
+      _iosPipErrorSubscription = PipUtils.iosPipErrors.listen((message) {
+        KazumiLogger().w('PlayerItem: ios pip error: $message');
+        KazumiDialog.showToast(message: message);
+      });
+      unawaited(_syncIOSAutoEnterPIPSetting());
+    }
     WidgetsBinding.instance.addObserver(this);
     _panelVisibilityController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -1343,6 +1451,12 @@ class _PlayerItemState extends State<PlayerItem>
     if (Platform.isAndroid) {
       unawaited(_syncAndroidPIPPlayerPageState(false));
       PipUtils.disposePipHandler();
+    }
+    if (Platform.isIOS) {
+      unawaited(_iosPipEventSubscription?.cancel());
+      unawaited(_iosPipErrorSubscription?.cancel());
+      _iosPipEventSubscription = null;
+      _iosPipErrorSubscription = null;
     }
     playerController.panel.reset();
     super.dispose();
@@ -1505,6 +1619,8 @@ class _PlayerItemState extends State<PlayerItem>
                             handleFullscreen: handleFullscreen,
                             enterAndroidPictureInPicture:
                                 enterAndroidPictureInPicture,
+                            enterIOSPictureInPicture:
+                                enterIOSPictureInPicture,
                             handleProgressBarDragStart:
                                 handleProgressBarDragStart,
                             handleProgressBarSeek: handleProgressBarSeek,
